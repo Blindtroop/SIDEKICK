@@ -1,7 +1,13 @@
+
 import { useState, useRef, useEffect } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "./assets/firebase/firebase";
+import Auth from "./assets/auth/auth";
 import "./App.css";
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -11,6 +17,15 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,6 +78,20 @@ function App() {
     }
   }
 
+  if (authLoading) {
+    return (
+      <main className="min-h-screen bg-[#f7f4f0] flex items-center justify-center">
+        <p className="text-sm text-[#796393] animate-pulse">
+          Waking up SIDEKICK...
+        </p>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return <Auth />;
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -89,6 +118,25 @@ function App() {
         <div className="sidebar-note">
           <span className="status-dot" />
           Your little corner of calm.
+        </div>
+
+        <div className="mt-auto space-y-3 border-t border-white/10 pt-4">
+          <p className="truncate text-xs text-white/60" title={user.email}>
+            {user.email}
+          </p>
+          <button
+            className="new-chat"
+            onClick={async () => {
+              try {
+                await signOut(auth);
+              } catch {
+                alert("Couldn't sign out. Please try again.");
+              }
+            }}
+            disabled={loading}
+          >
+            Sign out
+          </button>
         </div>
 
         <div className="sidebar-footer">A companion, not a crowd.</div>

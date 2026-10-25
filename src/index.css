@@ -1,15 +1,1 @@
-html,
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100%;
-}
-
-body {
-  min-height: 100vh;
-}
-
-button,
-input {
-  font: inherit;
-}
+@import "tailwindcss";
