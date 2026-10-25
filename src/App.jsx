@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
 
@@ -68,8 +67,8 @@ function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-icon">☁</span>
-          <span>SIDEKICK</span>
+          <span className="sun-mark" />
+          <span>sidekick</span>
         </div>
 
         <button
@@ -84,7 +83,7 @@ function App() {
           }
           disabled={loading}
         >
-          <span>＋</span> New conversation
+          New conversation
         </button>
 
         <div className="sidebar-note">
@@ -97,7 +96,9 @@ function App() {
 
       <section className="chat-panel">
         <header className="chat-header">
-          <div className="avatar">☁️</div>
+          <div className="avatar">
+            <span className="sun-mark small" />
+          </div>
           <div>
             <h1>Sidekick</h1>
             <p><span className="status-dot" /> Here with you</p>
@@ -106,9 +107,8 @@ function App() {
 
         <div className="messages">
           <div className="welcome">
-            <span className="welcome-icon">✳</span>
-            <h2>Here for you, Anytime.</h2>
-            <p>Feel free to share....</p>
+            <h2>Here for you, <em>anytime.</em></h2>
+            <p>Feel free to share.</p>
           </div>
 
           {messages.slice(1).map((message, index) => (
@@ -117,7 +117,9 @@ function App() {
               key={index}
             >
               {message.role === "assistant" && (
-                <div className="message-avatar">☁</div>
+                <div className="message-avatar">
+                  <span className="sun-mark tiny" />
+                </div>
               )}
               <div className="message-bubble">{message.content}</div>
             </div>
@@ -125,7 +127,9 @@ function App() {
 
           {loading && (
             <div className="message-row assistant">
-              <div className="message-avatar">☁</div>
+              <div className="message-avatar">
+                <span className="sun-mark tiny" />
+              </div>
               <div className="message-bubble typing">
                 Thinking<span>.</span><span>.</span><span>.</span>
               </div>
