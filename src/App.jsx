@@ -3,6 +3,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "./assets/firebase/firebase";
 import {
+  saveMemory,
+  getMemories,
+} from "./assets/memories/memoryservice";
+import {
   createChat,
   saveMessage,
   getChats,
@@ -139,36 +143,65 @@ function App() {
     }
   }
 
-  async function sendMessage(e) {
-    e.preventDefault();
+  
+async function sendMessage(e) {
+  e.preventDefault();
 
-    const text = input.trim();
-    if (!text || loading || !user || historyLoading) return;
+  const text = input.trim();
+  if (!text || loading || !user || historyLoading) return;
 
-    const userMessage = { role: "user", content: text };
-    const updatedMessages = [...messages, userMessage];
+  const userMessage = { role: "user", content: text };
+  const updatedMessages = [...messages, userMessage];
 
-    setMessages(updatedMessages);
-    setInput("");
-    setLoading(true);
-    setHistoryError("");
+  setMessages(updatedMessages);
+  setInput("");
+  setLoading(true);
+  setHistoryError("");
 
-    let activeChatId = chatId;
+  let activeChatId = chatId;
 
-    try {
-      if (!activeChatId) {
-        activeChatId = await createChat(user.uid, text);
-        setChatId(activeChatId);
-        await refreshChats(user.uid);
-      }
+  try {
+    if (!activeChatId) {
+      activeChatId = await createChat(user.uid, text);
+      setChatId(activeChatId);
+      await refreshChats(user.uid);
+    }
 
-      await saveMessage(user.uid, activeChatId, userMessage);
+    await saveMessage(user.uid, activeChatId, userMessage);
+
+    const rememberMatch = text.match(
+      /^(?:sidekick,?\s*)?(?:please\s+)?(?:remember(?:\s+that)?|don't forget(?:\s+that)?|never forget(?:\s+that)?)\s+(.+)$/i
+    );
+
+    const recallMatch =
+      /^(?:what do you remember about me|show me my memories|list my memories)\??$/i.test(
+        text
+      );
+
+    let reply;
+
+    if (rememberMatch) {
+      const memoryText = rememberMatch[1].trim();
+
+      await saveMemory(user.uid, memoryText, "explicit");
+
+      reply = `I'll remember that: ${memoryText}`;
+    } else if (recallMatch) {
+      const memories = await getMemories(user.uid);
+
+      reply = memories.length
+        ? "Here's what I remember about you:\n\n" +
+          memories.map((memory) => `• ${memory.text}`).join("\n")
+        : "I haven't saved any memories about you yet. Tell me something to remember!";
+    } else {
+      const memories = await getMemories(user.uid);
 
       const response = await fetch("http://localhost:3001/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: updatedMessages.slice(1),
+          memories: memories.map((memory) => memory.text),
         }),
       });
 
@@ -178,45 +211,46 @@ function App() {
         throw new Error(data.error || "Something went wrong.");
       }
 
-      const assistantMessage = {
-        role: "assistant",
-        content: data.reply,
-      };
-
-      setMessages((current) => [...current, assistantMessage]);
-
-      await saveMessage(user.uid, activeChatId, assistantMessage);
-      await refreshChats(user.uid);
-    } catch (error) {
-      console.error("Chat error:", error);
-
-      const errorMessage = {
-        role: "assistant",
-        content:
-          error.message || "I couldn't complete that. Please try again.",
-      };
-
-      setMessages((current) => [...current, errorMessage]);
-
-      if (activeChatId) {
-        try {
-          await saveMessage(user.uid, activeChatId, errorMessage);
-          await refreshChats(user.uid);
-        } catch (saveError) {
-          console.error("Could not save message:", saveError);
-          setHistoryError(
-            "A message couldn't be saved. Check your connection."
-          );
-        }
-      } else {
-        setHistoryError(
-          "Couldn't create a saved conversation. Check your connection and Firestore rules."
-        );
-      }
-    } finally {
-      setLoading(false);
+      reply = data.reply;
     }
+
+    const assistantMessage = {
+      role: "assistant",
+      content: reply,
+    };
+
+    setMessages((current) => [...current, assistantMessage]);
+
+    await saveMessage(user.uid, activeChatId, assistantMessage);
+    await refreshChats(user.uid);
+  } catch (error) {
+    console.error("Chat error:", error);
+
+    const errorMessage = {
+      role: "assistant",
+      content: error.message || "I couldn't complete that. Please try again.",
+    };
+
+    setMessages((current) => [...current, errorMessage]);
+
+    if (activeChatId) {
+      try {
+        await saveMessage(user.uid, activeChatId, errorMessage);
+        await refreshChats(user.uid);
+      } catch (saveError) {
+        console.error("Could not save message:", saveError);
+        setHistoryError("A message couldn't be saved. Check your connection.");
+      }
+    } else {
+      setHistoryError(
+        "Couldn't create a saved conversation. Check your connection and Firestore rules."
+      );
+    }
+  } finally {
+    setLoading(false);
   }
+}
+
 
   function newConversation() {
     if (loading || historyLoading) return;
