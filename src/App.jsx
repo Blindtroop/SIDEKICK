@@ -8,7 +8,7 @@ import {
   getChats,
   getChatMessages,
 } from "./assets/chat/chatservice";
-import Auth from "./assets/auth/Auth";
+import Auth from "./assets/auth/auth";
 import "./App.css";
 
 const greeting = {
