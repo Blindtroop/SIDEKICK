@@ -1,21 +1,30 @@
 
 import { useState, useRef, useEffect } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./assets/firebase/firebase";
-import Auth from "./assets/auth/auth";
+import {
+  createChat,
+  saveMessage,
+  getChats,
+  getChatMessages,
+} from "./assets/chat/chatservice";
+import Auth from "./assets/auth/Auth";
 import "./App.css";
+
+const greeting = {
+  role: "assistant",
+  content: "Hey, I'm SIDEKICK. ☁️ What's on your mind?",
+};
 
 function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "Hey, I'm SIDEKICK. ☁️ What's on your mind?",
-    },
-  ]);
+  const [messages, setMessages] = useState([greeting]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chatId, setChatId] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -28,6 +37,64 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) {
+      setChatId(null);
+      setMessages([greeting]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function restoreConversation() {
+      setHistoryLoading(true);
+      setHistoryError("");
+
+      try {
+        const chats = await getChats(user.uid);
+        if (cancelled) return;
+
+        if (chats.length > 0) {
+          const latestChat = chats[0];
+          const savedMessages = await getChatMessages(
+            user.uid,
+            latestChat.id
+          );
+
+          if (cancelled) return;
+
+          setChatId(latestChat.id);
+          setMessages(
+            savedMessages.length > 0
+              ? savedMessages.map(({ role, content }) => ({
+                  role,
+                  content,
+                }))
+              : [greeting]
+          );
+        } else {
+          setChatId(null);
+          setMessages([greeting]);
+        }
+      } catch (error) {
+        console.error("Could not restore conversation:", error);
+        if (!cancelled) {
+          setHistoryError(
+            "Couldn't load saved chats. Check your connection and refresh."
+          );
+        }
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    }
+
+    restoreConversation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
@@ -35,18 +102,26 @@ function App() {
     e.preventDefault();
 
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || !user || historyLoading) return;
 
-    const updatedMessages = [
-      ...messages,
-      { role: "user", content: text },
-    ];
+    const userMessage = { role: "user", content: text };
+    const updatedMessages = [...messages, userMessage];
 
     setMessages(updatedMessages);
     setInput("");
     setLoading(true);
+    setHistoryError("");
+
+    let activeChatId = chatId;
 
     try {
+      if (!activeChatId) {
+        activeChatId = await createChat(user.uid, text);
+        setChatId(activeChatId);
+      }
+
+      await saveMessage(user.uid, activeChatId, userMessage);
+
       const response = await fetch("http://localhost:3001/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,20 +136,57 @@ function App() {
         throw new Error(data.error || "Something went wrong.");
       }
 
-      setMessages((current) => [
-        ...current,
-        { role: "assistant", content: data.reply },
-      ]);
+      const assistantMessage = {
+        role: "assistant",
+        content: data.reply,
+      };
+
+      setMessages((current) => [...current, assistantMessage]);
+
+      await saveMessage(user.uid, activeChatId, assistantMessage);
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          role: "assistant",
-          content: error.message || "I couldn't connect. Try again.",
-        },
-      ]);
+      console.error("Chat error:", error);
+
+      const errorMessage = {
+        role: "assistant",
+        content:
+          error.message || "I couldn't complete that. Please try again.",
+      };
+
+      setMessages((current) => [...current, errorMessage]);
+
+      if (activeChatId) {
+        try {
+          await saveMessage(user.uid, activeChatId, errorMessage);
+        } catch (saveError) {
+          console.error("Could not save error message:", saveError);
+          setHistoryError("A message couldn't be saved. Check your connection.");
+        }
+      } else {
+        setHistoryError(
+          "Couldn't create a saved conversation. Check your connection and Firestore rules."
+        );
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  function newConversation() {
+    if (loading) return;
+    setChatId(null);
+    setMessages([greeting]);
+    setHistoryError("");
+  }
+
+  async function handleSignOut() {
+    try {
+      await import("firebase/auth").then(({ signOut }) =>
+        signOut(auth)
+      );
+    } catch (error) {
+      console.error("Sign-out failed:", error);
+      setHistoryError("Couldn't sign out. Please try again.");
     }
   }
 
@@ -88,9 +200,7 @@ function App() {
     );
   }
 
-  if (!user) {
-    return <Auth />;
-  }
+  if (!user) return <Auth />;
 
   return (
     <main className="app-shell">
@@ -102,17 +212,10 @@ function App() {
 
         <button
           className="new-chat"
-          onClick={() =>
-            setMessages([
-              {
-                role: "assistant",
-                content: "Fresh start! What's on your mind? ☁️",
-              },
-            ])
-          }
+          onClick={newConversation}
           disabled={loading}
         >
-          New conversation
+          + New conversation
         </button>
 
         <div className="sidebar-note">
@@ -124,17 +227,7 @@ function App() {
           <p className="truncate text-xs text-white/60" title={user.email}>
             {user.email}
           </p>
-          <button
-            className="new-chat"
-            onClick={async () => {
-              try {
-                await signOut(auth);
-              } catch {
-                alert("Couldn't sign out. Please try again.");
-              }
-            }}
-            disabled={loading}
-          >
+          <button className="new-chat" onClick={handleSignOut} disabled={loading}>
             Sign out
           </button>
         </div>
@@ -158,6 +251,18 @@ function App() {
             <h2>Here for you, <em>anytime.</em></h2>
             <p>Feel free to share.</p>
           </div>
+
+          {historyLoading && (
+            <p className="text-center text-sm text-[#817b89]">
+              Finding your saved conversations...
+            </p>
+          )}
+
+          {historyError && (
+            <p role="alert" className="text-center text-sm text-red-600">
+              {historyError}
+            </p>
+          )}
 
           {messages.slice(1).map((message, index) => (
             <div
@@ -193,9 +298,12 @@ function App() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Tell me what's on your mind..."
             aria-label="Message SIDEKICK"
-            disabled={loading}
+            disabled={loading || historyLoading}
           />
-          <button type="submit" disabled={loading || !input.trim()}>
+          <button
+            type="submit"
+            disabled={loading || historyLoading || !input.trim()}
+          >
             ↑
           </button>
         </form>
