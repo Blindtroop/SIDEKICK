@@ -1,6 +1,6 @@
 
-import { useState, useRef, useEffect } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "./assets/firebase/firebase";
 import {
   createChat,
@@ -23,9 +23,16 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [chatId, setChatId] = useState(null);
+  const [chats, setChats] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const bottomRef = useRef(null);
+
+  const refreshChats = useCallback(async (userId) => {
+    const savedChats = await getChats(userId);
+    setChats(savedChats);
+    return savedChats;
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -40,6 +47,7 @@ function App() {
     if (!user) {
       setChatId(null);
       setMessages([greeting]);
+      setChats([]);
       return;
     }
 
@@ -50,11 +58,13 @@ function App() {
       setHistoryError("");
 
       try {
-        const chats = await getChats(user.uid);
+        const savedChats = await getChats(user.uid);
         if (cancelled) return;
 
-        if (chats.length > 0) {
-          const latestChat = chats[0];
+        setChats(savedChats);
+
+        if (savedChats.length > 0) {
+          const latestChat = savedChats[0];
           const savedMessages = await getChatMessages(
             user.uid,
             latestChat.id
@@ -76,10 +86,10 @@ function App() {
           setMessages([greeting]);
         }
       } catch (error) {
-        console.error("Could not restore conversation:", error);
+        console.error("Could not restore conversations:", error);
         if (!cancelled) {
           setHistoryError(
-            "Couldn't load saved chats. Check your connection and refresh."
+            "Couldn't load saved conversations. Try refreshing."
           );
         }
       } finally {
@@ -97,6 +107,37 @@ function App() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  async function openChat(selectedChat) {
+    if (loading || historyLoading || selectedChat.id === chatId) return;
+
+    setHistoryLoading(true);
+    setHistoryError("");
+
+    try {
+      const savedMessages = await getChatMessages(
+        user.uid,
+        selectedChat.id
+      );
+
+      setChatId(selectedChat.id);
+      setMessages(
+        savedMessages.length > 0
+          ? savedMessages.map(({ role, content }) => ({
+              role,
+              content,
+            }))
+          : [greeting]
+      );
+    } catch (error) {
+      console.error("Could not open conversation:", error);
+      setHistoryError(
+        "Couldn't open that conversation. Please try again."
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
 
   async function sendMessage(e) {
     e.preventDefault();
@@ -118,6 +159,7 @@ function App() {
       if (!activeChatId) {
         activeChatId = await createChat(user.uid, text);
         setChatId(activeChatId);
+        await refreshChats(user.uid);
       }
 
       await saveMessage(user.uid, activeChatId, userMessage);
@@ -144,6 +186,7 @@ function App() {
       setMessages((current) => [...current, assistantMessage]);
 
       await saveMessage(user.uid, activeChatId, assistantMessage);
+      await refreshChats(user.uid);
     } catch (error) {
       console.error("Chat error:", error);
 
@@ -158,9 +201,12 @@ function App() {
       if (activeChatId) {
         try {
           await saveMessage(user.uid, activeChatId, errorMessage);
+          await refreshChats(user.uid);
         } catch (saveError) {
-          console.error("Could not save error message:", saveError);
-          setHistoryError("A message couldn't be saved. Check your connection.");
+          console.error("Could not save message:", saveError);
+          setHistoryError(
+            "A message couldn't be saved. Check your connection."
+          );
         }
       } else {
         setHistoryError(
@@ -173,7 +219,8 @@ function App() {
   }
 
   function newConversation() {
-    if (loading) return;
+    if (loading || historyLoading) return;
+
     setChatId(null);
     setMessages([greeting]);
     setHistoryError("");
@@ -181,19 +228,21 @@ function App() {
 
   async function handleSignOut() {
     try {
-      await import("firebase/auth").then(({ signOut }) =>
-        signOut(auth)
-      );
+      await signOut(auth);
     } catch (error) {
       console.error("Sign-out failed:", error);
       setHistoryError("Couldn't sign out. Please try again.");
     }
   }
 
+  function getChatTitle(chat) {
+    return chat.title || "New conversation";
+  }
+
   if (authLoading) {
     return (
-      <main className="min-h-screen bg-[#f7f4f0] flex items-center justify-center">
-        <p className="text-sm text-[#796393] animate-pulse">
+      <main className="flex min-h-screen items-center justify-center bg-[#f7f4f0]">
+        <p className="animate-pulse text-sm text-[#796393]">
           Waking up SIDEKICK...
         </p>
       </main>
@@ -213,7 +262,7 @@ function App() {
         <button
           className="new-chat"
           onClick={newConversation}
-          disabled={loading}
+          disabled={loading || historyLoading}
         >
           + New conversation
         </button>
@@ -223,11 +272,51 @@ function App() {
           Your little corner of calm.
         </div>
 
+        <div className="mt-6 mb-5 flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <p className="mb-3 px-2 text-[10px] font-bold tracking-[1.5px] text-black/55">
+            YOUR CONVERSATIONS
+          </p>
+
+          {historyLoading && (
+            <p className="px-2 py-2 text-xs text-black/55">
+              Loading conversations...
+            </p>
+          )}
+
+          {!historyLoading && chats.length === 0 && (
+            <p className="px-2 py-2 text-xs leading-relaxed text-black/55">
+              Your conversations will appear here.
+            </p>
+          )}
+
+          {chats.map((chat) => (
+            <button
+              key={chat.id}
+              className={`mb-1 flex w-full items-center gap-2.5 rounded-xl border px-3 py-3 text-left text-sm transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+                chat.id === chatId
+                  ? "border-white/10 bg-white/15 text-black/90"
+                  : "border-transparent text-black/75 hover:bg-white/10"
+              }`}
+              onClick={() => openChat(chat)}
+              disabled={loading || historyLoading}
+              title={getChatTitle(chat)}
+            >
+              <span className="shrink-0 text-black/80">☁</span>
+              <span className="truncate">{getChatTitle(chat)}</span>
+            </button>
+          ))}
+        </div>
+
         <div className="mt-auto space-y-3 border-t border-white/10 pt-4">
-          <p className="truncate text-xs text-white/60" title={user.email}>
+          <p className="truncate text-xs text-black/60" title={user.email}>
             {user.email}
           </p>
-          <button className="new-chat" onClick={handleSignOut} disabled={loading}>
+
+          <button
+            className="new-chat"
+            onClick={handleSignOut}
+            disabled={loading}
+          >
             Sign out
           </button>
         </div>
@@ -240,23 +329,22 @@ function App() {
           <div className="avatar">
             <span className="sun-mark small" />
           </div>
+
           <div>
             <h1>Sidekick</h1>
-            <p><span className="status-dot" /> Here with you</p>
+            <p>
+              <span className="status-dot" /> Here with you
+            </p>
           </div>
         </header>
 
         <div className="messages">
           <div className="welcome">
-            <h2>Here for you, <em>anytime.</em></h2>
+            <h2>
+              Here for you, <em>anytime.</em>
+            </h2>
             <p>Feel free to share.</p>
           </div>
-
-          {historyLoading && (
-            <p className="text-center text-sm text-[#817b89]">
-              Finding your saved conversations...
-            </p>
-          )}
 
           {historyError && (
             <p role="alert" className="text-center text-sm text-red-600">
@@ -267,13 +355,14 @@ function App() {
           {messages.slice(1).map((message, index) => (
             <div
               className={`message-row ${message.role}`}
-              key={index}
+              key={`${chatId || "new"}-${index}`}
             >
               {message.role === "assistant" && (
                 <div className="message-avatar">
                   <span className="sun-mark tiny" />
                 </div>
               )}
+
               <div className="message-bubble">{message.content}</div>
             </div>
           ))}
@@ -283,8 +372,11 @@ function App() {
               <div className="message-avatar">
                 <span className="sun-mark tiny" />
               </div>
+
               <div className="message-bubble typing">
-                Thinking<span>.</span><span>.</span><span>.</span>
+                Thinking<span>.</span>
+                <span>.</span>
+                <span>.</span>
               </div>
             </div>
           )}
@@ -300,6 +392,7 @@ function App() {
             aria-label="Message SIDEKICK"
             disabled={loading || historyLoading}
           />
+
           <button
             type="submit"
             disabled={loading || historyLoading || !input.trim()}

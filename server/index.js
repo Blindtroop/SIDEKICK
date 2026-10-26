@@ -44,7 +44,7 @@ app.post("/api/chat", async (req, res) => {
    const start = Date.now();
 
 const response = await ai.models.generateContent({
-  model: "gemini-3.1-flash-lite",
+  model: "gemini-3.5-flash-lite",
   contents,
   config: {
     temperature: 0.3,
