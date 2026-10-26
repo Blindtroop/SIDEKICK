@@ -196,7 +196,9 @@ async function sendMessage(e) {
     } else {
       const memories = await getMemories(user.uid);
 
-      const response = await fetch("http://localhost:3001/api/chat", {
+      const response = await fetch(
+  `${import.meta.env.VITE_API_URL || "http://localhost:3001"}/api/chat`,
+  {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
