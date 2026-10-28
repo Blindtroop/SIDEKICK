@@ -179,6 +179,7 @@ async function sendMessage(e) {
       );
 
     let reply;
+    let sources = [];
 
     if (rememberMatch) {
       const memoryText = rememberMatch[1].trim();
@@ -207,20 +208,33 @@ async function sendMessage(e) {
         }),
       });
 
-      const data = await response.json();
+     
+const responseText = await response.text();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Something went wrong.");
-      }
+let data;
 
-      reply = data.reply;
+try {
+  data = JSON.parse(responseText);
+} catch {
+  throw new Error(
+    `Server returned an invalid response (${response.status}). Check the backend logs.`
+  );
+}
+
+if (!response.ok) {
+  throw new Error(data.error || "Something went wrong.");
+}
+
+reply = data.reply;
+sources = data.sources || [];
+
     }
 
     const assistantMessage = {
-      role: "assistant",
-      content: reply,
-    };
-
+  role: "assistant",
+  content: reply,
+  sources,
+};
     setMessages((current) => [...current, assistantMessage]);
 
     await saveMessage(user.uid, activeChatId, assistantMessage);
@@ -399,7 +413,34 @@ async function sendMessage(e) {
                 </div>
               )}
 
-              <div className="message-bubble">{message.content}</div>
+             
+<div className="message-bubble">
+  {message.content}
+
+  {message.role === "assistant" && message.sources?.length > 0 && (
+    <div className="mt-4 border-t border-black/10 pt-3">
+      <p className="mb-2 text-xs font-semibold text-black/60">
+        Sources
+      </p>
+
+      <ul className="space-y-2">
+        {message.sources.map((source, sourceIndex) => (
+          <li key={`${source.url}-${sourceIndex}`}>
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-words text-sm text-[#796393] underline underline-offset-2 hover:opacity-75"
+            >
+              {source.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
+</div>
+
             </div>
           ))}
 
