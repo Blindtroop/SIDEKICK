@@ -322,8 +322,7 @@ sources = data.sources || [];
           Your little corner of calm.
         </div>
 
-        <div className="mt-6 mb-5 flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <p className="mb-3 px-2 text-[10px] font-bold tracking-[1.5px] text-black/55">
+<div className="mt-6 mb-5 flex min-h-0 flex-1 flex-col overflow-y-auto">          <p className="mb-3 px-2 text-[10px] font-bold tracking-[1.5px] text-black/55">
             YOUR CONVERSATIONS
           </p>
 

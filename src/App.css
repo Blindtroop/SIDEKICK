@@ -105,16 +105,20 @@ button:disabled {
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--paper);
 }
 
 /* Sidebar */
 .sidebar {
   width: 260px;
-  padding: 36px 26px;
+  height: 100dvh;
+  padding: 28px 26px;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
   background: var(--paper);
   border-right: 1px solid var(--rule);
 }
@@ -181,7 +185,8 @@ button:disabled {
   display: flex;
   flex: 1;
   min-width: 0;
-  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   flex-direction: column;
 }
 
