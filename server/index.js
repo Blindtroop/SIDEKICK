@@ -38,6 +38,16 @@ async function generateWithRetry(generate) {
   }
 }
 
+function shouldExtractMemories(messages) {
+  const latestUserMessage =
+    [...messages].reverse().find((message) => message.role === "user")
+      ?.content || "";
+
+  return /\b(i|i'm|i am|i've|i have|my|we|our)\b/i.test(
+    latestUserMessage
+  );
+}
+
 const app = express();
 
 const allowedOrigins = [
@@ -168,10 +178,87 @@ Never imply that the RSS feeds are your only source of knowledge.
 
 console.log(`Gemini took ${Date.now() - start}ms`);
 
+let memoryCandidates = [];
+
+if (shouldExtractMemories(messages)) {
+  try {
+    const userConversation = messages
+      .filter((message) => message.role === "user")
+      .slice(-8)
+      .map((message) => message.content);
+
+    const memoryResponse = await generateWithRetry(() =>
+      ai.models.generateContent({
+        model: "gemini-3.5-flash-lite",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `
+You are SIDEKICK's memory extraction system.
+
+Identify up to 3 useful, long-term facts about the user from their messages.
+
+Prioritize:
+- Personal preferences
+- Long-term goals
+- Ongoing projects
+- Skills and interests
+- Stable personal circumstances
+
+Rules:
+- Only extract facts explicitly stated by the user.
+- Do not extract temporary events, casual conversation, or passing questions.
+- Do not repeat information already present in saved memories.
+- Do not infer facts or invent details.
+- Do not automatically save sensitive information about health, sexuality, religion, politics, or credentials.
+- If an existing memory is outdated, only suggest a replacement when the user clearly provides an update.
+- Return an empty array if nothing is worth remembering.
+
+Existing memories:
+${JSON.stringify(memories)}
+
+Recent user messages:
+${JSON.stringify(userConversation)}
+
+Return valid JSON in exactly this format:
+{"memoryCandidates":["memory 1","memory 2"]}
+`,
+              },
+            ],
+          },
+        ],
+        config: {
+          temperature: 0,
+          maxOutputTokens: 200,
+          responseMimeType: "application/json",
+        },
+      })
+    );
+
+    const extracted = JSON.parse(memoryResponse.text || "{}");
+
+    memoryCandidates = Array.isArray(extracted.memoryCandidates)
+      ? extracted.memoryCandidates
+          .filter(
+            (memory) =>
+              typeof memory === "string" &&
+              memory.trim().length > 0 &&
+              memory.length <= 1000
+          )
+          .slice(0, 3)
+      : [];
+  } catch (memoryError) {
+    console.error("Automatic memory extraction failed:", memoryError.message);
+  }
+}
+
 return res.json({
   reply: response.text || "I'm here. Want to try that again?",
   sources,
-});   } catch (error) {
+  memoryCandidates,
+});  } catch (error) {
     console.error("Gemini request failed:", error.message);
 
     return res.status(500).json({

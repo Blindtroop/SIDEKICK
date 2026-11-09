@@ -228,6 +228,24 @@ if (!response.ok) {
 reply = data.reply;
 sources = data.sources || [];
 
+const memoryCandidates = Array.isArray(data.memoryCandidates)
+  ? data.memoryCandidates
+  : [];
+
+for (const memoryText of memoryCandidates) {
+  if (typeof memoryText === "string" && memoryText.trim()) {
+    try {
+      await saveMemory(
+        user.uid,
+        memoryText.trim(),
+        "automatic"
+      );
+    } catch (memoryError) {
+      console.error("Could not save automatic memory:", memoryError);
+    }
+  }
+}
+
     }
 
     const assistantMessage = {
